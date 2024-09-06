@@ -12,7 +12,7 @@ async function getOnlineAgentByAgentCode(agentcode) {
 
         let pool = await sql.connect(sqlConfig);
         let result = await pool.request().query(`SELECT * FROM [OnlineAgents] WHERE [agent_code] = '${agentcode}'`); //@agentcode
-        //let result = await pool.request().query(`SELECT * FROM [OnlineAgents] WHERE [agent_code] LIKE '99%'`); //@agentcode
+        // let result = await pool.request().query(`SELECT * FROM [OnlineAgents] WHERE [agent_code] LIKE '99%'`); //@agentcode
 
         console.log("result: ", result);
 
