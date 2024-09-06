@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <link type="text/css" rel="stylesheet" href="./assets/css/bootstrap.css" media="screen,projection" />
+    <link rel="stylesheet" href="./assets/css/style.css" media="screen" charset="utf-8" />
+
+    <script language="JavaScript">
+        const { ipcRenderer, remote } = require("electron");
+        const $ = require("jquery");
+        const Timer = require("easytimer.js").Timer;
+        const timer = new Timer();
+
+        var AgentCode;
+        var agentStatusID;
+        var callTotal = 0;
+        var agentData;
+
+        var CallID;
+
+        //--Dev Server------------------------------
+        var APIServer = "https://192.168.56.1:8443/api/v1";
+        var WebSecketServer = "ws://192.168.56.1:3071";
+
+        //--Staging Server------------------------------
+        //var APIServer = "https://192.168.56.106:8443/api/v1";
+        //var WebSecketServer = "ws://192.168.56.106:3071";
+        var ConcurrentCall = [];
+        var connectSocket = false;
+        var IsLogin = 0;
+        var wsChecks = "false";
+
+        var c;
+        let ws;
+
+        let checked;
+
+        $(function () {
+            console.log("ready!");
+
+            $("#buttonCall").hide();
+            $("#buttonDisConnect").hide();
+            $("#buttonConnect").show();
+            $("#nodata").hide();
+            $("#Notification").hide();  // Hide Notification button by default
+            $("#agent").focus();
+
+            if (localStorage.getItem("agent") != "") {
+                console.log("Saved Agent Code: " + localStorage.getItem("agent"));
+                $("#agent").val(localStorage.getItem("agent"));
+                checkInput('on');
+            }
+        });
+
+        function checkInput(status) {
+            if ($("#agent").val() == "") {
+                $("#connectTime").empty().append("Please enter Agent Code !!");
+                $("#agent").focus();
+            } else {
+                AgentCode = $("#agent").val();
+
+                $.ajax({
+                    url: APIServer + "/getOnlineAgentByAgentCode?agentcode=" + AgentCode,
+                    headers: {
+                        'Authorization': 'Bearer 00D5D0000001aaZ!ARgAQGuQzp.mOv2jmhXkfIsjgywpCIh7.HZpc6vED1LCbc90DTaVDJwdNqbTW5r4uZicv8AFfkOE1ialqnR8UN5.wnAg3O7h'
+                    },
+                    timeout: 15000,
+                    success: function (response) {
+                        console.log(response);
+                        if (response.error == false) {
+                            if ((response.data.IsLogin == 1) && (response.data.AgentStatus != 9)) {
+                                wsChecks = "true";
+                                firstLogin(response.data);
+                                $("#nodata").show();
+                                $("#display").hide();
+                                $("#buttonDisConnect").show();
+                                $("#buttonCall").show();
+                                $("#Notification").show(); // Show Notification button when connected
+
+                                IsLogin = 1;
+
+                                statusDisplay(response.data.AgentStatus);
+
+                                $("#ConnectionStatus").empty().append("Connected");
+
+                                localStorage.setItem("agent", $("#agent").val())
+                            } else {
+                                $("#connectTime").empty().append("[" + response.data.agent_code + "] Agent not loging").show();
+                                wsChecks = false;
+                            }
+                        } else {
+                            console.log('---- ERROR ------');
+                            $("#connectTime").empty().append(response.errMessage);
+                            wsChecks = false;
+                        }
+                    },
+                    error: function (XMLHttpRequest, textStatus, errorThrown) {
+                        console.log('ERROR: net::ERR_INTERNET_DISCONNECTED');
+                        $('#connectTime').empty().append('ERROR: INTERNET DISCONNECTED');
+                    }
+                });
+            }
+        }
+
+        function firstLogin(d) {
+            setLoginTime();
+
+            $("#status")
+                .removeClass()
+                .addClass("badge bg-success")
+                .empty()
+                .append("Connected");
+
+            counterTimer();
+
+            statusDisplay(d.AgentStatus);
+
+            ipcRenderer.on("getcallid", (e, call_id) => {
+                console.log("Call id:", call_id);
+                CallID = call_id;
+            });
+        }
+
+        function setLoginTime() {
+            var d = new Date();
+            var month = d.getMonth() + 1;
+            var day = d.getDate();
+            var hour = d.getHours();
+            var minute = d.getMinutes();
+            var sec = d.getSeconds();
+
+            var output =
+                d.getFullYear() + "-" +
+                (month < 10 ? "0" : "") + month + "-" +
+                (day < 10 ? "0" : "") + day + " " +
+                (hour < 10 ? "0" : "") + hour + ":" +
+                (minute < 10 ? "0" : "") + minute + ":" +
+                (sec < 10 ? "0" : "") + sec;
+
+            $("#connectTime").empty().append("[" + AgentCode + "] Starts at: " + output);
+        }
+
+        function counterTimer() {
+            timer.stop();
+            timer.reset();
+
+            if (connectSocket != "false") {
+                timer.start();
+                timer.addEventListener("secondsUpdated", function (e) {
+                    $("#basicUsage")
+                        .empty()
+                        .removeClass()
+                        .addClass("badge bg-dark")
+                        .append(timer.getTimeValues().toString());
+                });
+            }
+        }
+
+    </script>
+</head>
+
+<body data-window="main">
+    <div class="warper">
+        <div class="row">
+            <div class="col-12">
+                <table class="table table-sm fs-6">
+                    <tr>
+                        <div class="pt-2 pl-2 pr-2">
+                            <tr>
+                                <td class="text-white">
+                                    <span class="text-white" id="connectTime">Information</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-white">
+                                    <span class="text-blue badge bg-danger" id="ConnectionStatus">Disconnected</span>
+                                </td>
+                            </tr>
+                        </div>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="col-12">
+                <table class="table table-sm fs-6">
+                    <tr>
+                        <div class="row">
+                            <div class="col-sm-12 text-center">
+                                <button id="buttonCall" class="btn btn-primary btn-sm shadow btn-block mt-2" disable
+                                    onclick="CallOnescreen(1,'0000')">Pop-up Chrome</button>
+                                <button id="buttonDisConnect" class="btn btn-danger btn-sm shadow btn-block mt-2"
+                                    onclick="logoutFromAPI()">Disconnect</button>
+                                <button id="Notification" class="btn btn-primary btn-sm shadow btn-block mt-2" disable
+                                    onclick="showNotification()">Show Notification</button> <!-- Button to trigger notification -->
+                            </div>
+                        </div>
+                    </tr>
+                </table>
+            </div>
+
+            <div id="display">
+                <div class="row">
+                    <div class="col-12">
+                        <div class="input-group mb-1">
+                            <input type="text" class="form-control form-control-sm" id="agent"
+                                placeholder="Enter Agent Code" />
+                            <button id="buttonConnect" class="btn btn-warning btn-sm btn-block shadow"
+                                onclick="checkInput('on')">Connect</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-12 text-center pt-2">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showNotification() {
+            alert("Agent connected successfully!");
+        }
+    </script>
+</body>
+
+</html>
